@@ -1,0 +1,192 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crypto Treasury Accumulation Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <img class="hero-logo" src="assets/owl_logo.png" alt="Owl logo" />
+      <div class="hero-text">
+        <h1>Crypto Treasury Accumulation Tracker</h1>
+        <p class="subtitle">Supported chains/networks:</p>
+        <div class="supported-icons">
+          <img class="network-icon" src="assets/logos/chains/bitcoin.png" alt="Bitcoin" title="Bitcoin" />
+          <img class="network-icon" src="assets/logos/chains/arbitrum.png" alt="Arbitrum" title="Arbitrum" />
+          <img class="network-icon" src="assets/logos/chains/base.png" alt="Base" title="Base" />
+          <img class="network-icon" src="assets/logos/chains/optimism.png" alt="Optimism" title="Optimism" />
+          <img class="network-icon" src="assets/logos/chains/bsc.png" alt="BSC" title="BSC" />
+        </div>
+      </div>
+      <div class="hero-actions">
+        <button id="openSettingsBtn" class="settings-gear-btn" type="button" title="Open settings" aria-label="Open settings">&#9881;</button>
+      </div>
+    </div>
+
+    <section class="panel main-panel">
+      <div class="chart-grid">
+        <div class="chart-card">
+          <div class="chart-title">Accumulation Progress (%)</div>
+          <div id="breakdownBars" class="breakdown-bars"></div>
+        </div>
+      </div>
+      <div id="groupTabs" class="group-tabs"></div>
+      <div class="results-shell">
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Wallet Addr</th>
+              <th>Coin</th>
+              <th>Balance</th>
+              <th>Share</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+      </div>
+      <div id="errorSummary" class="note"></div>
+      <div class="note">If Alchemy fails for a chain/token, the scanner falls back to configured RPC endpoints in order.</div>
+    </section>
+    <div id="sourceSummary" class="note source-summary"></div>
+  </div>
+
+  <div id="settingsModal" class="settings-modal" aria-hidden="true">
+    <aside class="panel settings-panel">
+      <div class="settings-head">
+        <h2>Settings</h2>
+        <button id="closeSettingsBtn" class="settings-close-btn" type="button" title="Close settings">x</button>
+      </div>
+      <label for="walletInput">Wallet addresses (paste multi-line / comma / space separated)</label>
+      <div class="wallet-input-row">
+        <input id="walletInput" type="text" spellcheck="false" placeholder="Paste one or many addresses, then click Add Wallets" />
+        <button id="addWalletBtn" type="button">Add Wallets</button>
+      </div>
+      <div id="walletChips" class="wallet-chips"></div>
+      <div class="row">
+        <button id="scanBtn" type="button">Scan Holdings</button>
+        <button id="copyWalletsBtn" type="button" title="Copy tracked wallet addresses">&#128203; Copy Wallet Addresses</button>
+        <span id="status" class="status">Idle</span>
+      </div>
+      <details class="rpc-details" open>
+        <summary>Data Source Settings</summary>
+        <div class="rpc-item" style="margin-top:8px;">
+          <label for="alchemyApiKey">Alchemy API Key (primary provider)</label>
+          <input id="alchemyApiKey" type="text" placeholder="Paste your Alchemy API key" />
+        </div>
+      </details>
+      <details class="rpc-details">
+        <summary>RPC Fallback Lists</summary>
+        <div class="rpc-grid">
+          <div class="rpc-item">
+            <label for="rpcArbitrum">Arbitrum RPCs (one per line)</label>
+            <textarea id="rpcArbitrum" class="mini-textarea"></textarea>
+          </div>
+          <div class="rpc-item">
+            <label for="rpcBase">Base RPCs (one per line)</label>
+            <textarea id="rpcBase" class="mini-textarea"></textarea>
+          </div>
+          <div class="rpc-item">
+            <label for="rpcOptimism">Optimism RPCs (one per line)</label>
+            <textarea id="rpcOptimism" class="mini-textarea"></textarea>
+          </div>
+          <div class="rpc-item">
+            <label for="rpcBsc">BSC RPCs (one per line)</label>
+            <textarea id="rpcBsc" class="mini-textarea"></textarea>
+          </div>
+        </div>
+        <div class="row">
+          <button id="resetRpcBtn" type="button">Reset RPC Defaults</button>
+        </div>
+      </details>
+      <details class="rpc-details">
+        <summary>Token Group Builder</summary>
+        <div class="field-grid">
+          <div class="rpc-item">
+            <label for="groupSelect">Select Group</label>
+            <select id="groupSelect"></select>
+          </div>
+          <div class="rpc-item">
+            <label for="groupTargetInput">Accumulation Target</label>
+            <input id="groupTargetInput" type="text" placeholder="Example: 0.2" />
+          </div>
+        </div>
+        <div class="field-grid-4">
+          <div class="rpc-item">
+            <label for="groupKeyInput">Group Key</label>
+            <input id="groupKeyInput" type="text" placeholder="BTC" />
+          </div>
+          <div class="rpc-item">
+            <label for="groupNameInput">Group Name</label>
+            <input id="groupNameInput" type="text" placeholder="BTC Basket" />
+          </div>
+          <div class="rpc-item">
+            <label for="groupDecimalsInput">Group Decimals</label>
+            <input id="groupDecimalsInput" type="number" min="0" max="30" />
+          </div>
+          <div class="rpc-item">
+            <label for="newGroupKeyInput">New Group Key</label>
+            <input id="newGroupKeyInput" type="text" placeholder="SOL" />
+          </div>
+        </div>
+        <div class="row">
+          <button id="saveGroupBtn" type="button">Save Group</button>
+          <button id="addGroupBtn" type="button">Add Group</button>
+          <button id="deleteGroupBtn" type="button">Delete Group</button>
+        </div>
+        <div class="field-grid-4">
+          <div class="rpc-item">
+            <label for="memberKind">Member Type</label>
+            <select id="memberKind">
+              <option value="native">Native</option>
+              <option value="token">Token</option>
+            </select>
+          </div>
+          <div class="rpc-item">
+            <label for="memberChain">Chain</label>
+            <select id="memberChain"></select>
+          </div>
+          <div class="rpc-item">
+            <label for="memberSymbol">Symbol</label>
+            <input id="memberSymbol" type="text" placeholder="WETH" />
+          </div>
+          <div class="rpc-item">
+            <label for="memberAddress">Token Contract (token only)</label>
+            <input id="memberAddress" type="text" placeholder="0x..." />
+          </div>
+        </div>
+        <div class="field-grid">
+          <div class="rpc-item">
+            <label for="memberDecimals">Member Decimals</label>
+            <input id="memberDecimals" type="number" min="0" max="30" value="18" />
+          </div>
+          <div class="row" style="align-items:end;">
+            <button id="addMemberBtn" type="button">Add Member</button>
+          </div>
+        </div>
+        <div id="memberList" class="member-list"></div>
+      </details>
+      <div class="note">Managed provider (`Alchemy`) is primary for EVM balances. RPC lists are used as fallback. Native BTC is fetched from Bitcoin explorer APIs.</div>
+    </aside>
+  </div>
+  <div id="startupHint" class="startup-hint" aria-live="polite">
+    <button id="startupHintCloseBtn" class="startup-hint-close" type="button" title="Dismiss">x</button>
+    <div class="startup-hint-title">Getting Started</div>
+    <div class="startup-hint-text">Click the <strong>Gear</strong> button to open settings, then:</div>
+    <ol class="startup-hint-list">
+      <li>Paste wallet addresses.</li>
+      <li>Add your Alchemy API key (optional, recommended).</li>
+      <li>Click <strong>Scan Holdings</strong>.</li>
+    </ol>
+  </div>
+  <div id="floatingTooltip" class="floating-tooltip" role="status" aria-live="polite"></div>
+  <button id="fakeChatbotBtn" class="fake-chatbot" type="button" title="Click me">
+    <img src="assets/profile_pic.jfif" alt="Profile" />
+  </button>
+  <div id="fakeChatbotMsg" class="fake-chatbot-msg" role="status" aria-live="polite"></div><script src="app.js"></script>
+</body>
+</html>
