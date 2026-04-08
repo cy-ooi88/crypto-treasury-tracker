@@ -14,15 +14,17 @@
         <h1>Crypto Treasury Accumulation Tracker</h1>
         <p class="subtitle">Supported chains/networks:</p>
         <div class="supported-icons">
+          <img class="network-icon" src="assets/logos/chains/ethereum.png" alt="Ethereum" title="Ethereum" />
           <img class="network-icon" src="assets/logos/chains/bitcoin.png" alt="Bitcoin" title="Bitcoin" />
           <img class="network-icon" src="assets/logos/chains/arbitrum.png" alt="Arbitrum" title="Arbitrum" />
           <img class="network-icon" src="assets/logos/chains/base.png" alt="Base" title="Base" />
           <img class="network-icon" src="assets/logos/chains/optimism.png" alt="Optimism" title="Optimism" />
           <img class="network-icon" src="assets/logos/chains/bsc.png" alt="BSC" title="BSC" />
+          <img class="network-icon" src="assets/logos/chains/solana.png" alt="Solana" title="Solana" />
         </div>
       </div>
       <div class="hero-actions">
-        <button id="openSettingsBtn" class="settings-gear-btn" type="button" title="Open settings" aria-label="Open settings">&#9881;</button>
+        <button id="openSettingsBtn" class="settings-gear-btn" type="button" title="Open settings" aria-label="Open settings" onclick="(function(){var m=document.getElementById('settingsModal'); if(!m)return; m.classList.add('show'); m.setAttribute('aria-hidden','false');})()">&#9881;</button>
       </div>
     </div>
 
@@ -50,16 +52,16 @@
       </div>
       </div>
       <div id="errorSummary" class="note"></div>
-      <div class="note">If Alchemy fails for a chain/token, the scanner falls back to configured RPC endpoints in order.</div>
+      <div class="note">If Alchemy fails for a chain/token, the scanner falls back to configured RPC endpoints in order (Ethereum and Solana included).</div>
     </section>
     <div id="sourceSummary" class="note source-summary"></div>
   </div>
 
-  <div id="settingsModal" class="settings-modal" aria-hidden="true">
+  <div id="settingsModal" class="settings-modal" aria-hidden="true" onclick="if(event.target===this){this.classList.remove('show'); this.setAttribute('aria-hidden','true');}">
     <aside class="panel settings-panel">
       <div class="settings-head">
         <h2>Settings</h2>
-        <button id="closeSettingsBtn" class="settings-close-btn" type="button" title="Close settings">x</button>
+        <button id="closeSettingsBtn" class="settings-close-btn" type="button" title="Close settings" onclick="(function(){var m=document.getElementById('settingsModal'); if(!m)return; m.classList.remove('show'); m.setAttribute('aria-hidden','true');})()">x</button>
       </div>
       <label for="walletInput">Wallet addresses (paste multi-line / comma / space separated)</label>
       <div class="wallet-input-row">
@@ -83,6 +85,10 @@
         <summary>RPC Fallback Lists</summary>
         <div class="rpc-grid">
           <div class="rpc-item">
+            <label for="rpcEthereum">Ethereum RPCs (one per line)</label>
+            <textarea id="rpcEthereum" class="mini-textarea"></textarea>
+          </div>
+          <div class="rpc-item">
             <label for="rpcArbitrum">Arbitrum RPCs (one per line)</label>
             <textarea id="rpcArbitrum" class="mini-textarea"></textarea>
           </div>
@@ -97,6 +103,10 @@
           <div class="rpc-item">
             <label for="rpcBsc">BSC RPCs (one per line)</label>
             <textarea id="rpcBsc" class="mini-textarea"></textarea>
+          </div>
+          <div class="rpc-item">
+            <label for="rpcSolana">Solana RPCs (one per line)</label>
+            <textarea id="rpcSolana" class="mini-textarea"></textarea>
           </div>
         </div>
         <div class="row">
@@ -137,6 +147,7 @@
           <button id="saveGroupBtn" type="button">Save Group</button>
           <button id="addGroupBtn" type="button">Add Group</button>
           <button id="deleteGroupBtn" type="button">Delete Group</button>
+          <button id="applyAliasPresetBtn" type="button">Apply Alias Preset</button>
         </div>
         <div class="field-grid-4">
           <div class="rpc-item">
@@ -170,7 +181,7 @@
         </div>
         <div id="memberList" class="member-list"></div>
       </details>
-      <div class="note">Managed provider (`Alchemy`) is primary for EVM balances. RPC lists are used as fallback. Native BTC is fetched from Bitcoin explorer APIs.</div>
+      <div class="note">Managed provider (`Alchemy`) is primary for EVM and Solana balances. RPC lists are used as fallback. Native BTC is fetched from Bitcoin explorer APIs.</div>
     </aside>
   </div>
   <div id="startupHint" class="startup-hint" aria-live="polite">
