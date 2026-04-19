@@ -7,6 +7,8 @@ const SOLANA_TOKEN_PROGRAMS = [
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 ];
+const ARBITRUM_WBTC_ADDRESS_OLD = "0x2f2a2543b76a4166549f7aab2e75bef0ae0f5b0f";
+const ARBITRUM_WBTC_ADDRESS = "0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f";
 
 const DEFAULT_APP_CONFIG = {
   version: 3,
@@ -30,7 +32,7 @@ const DEFAULT_APP_CONFIG = {
     BTC: {
       key: "BTC", name: "BTC Basket", decimals: 8, members: [
         { kind: "native", chain: "bitcoin", symbol: "BTC", decimals: 8 },
-        { kind: "token", chain: "arbitrum", symbol: "WBTC", address: "0x2f2a2543b76a4166549f7aab2e75bef0ae0f5b0f", decimals: 8 },
+        { kind: "token", chain: "arbitrum", symbol: "WBTC", address: ARBITRUM_WBTC_ADDRESS, decimals: 8 },
         { kind: "token", chain: "base", symbol: "WBTC", address: "0x0555e30da8f98308edb960aa94c0db47230d2b9c", decimals: 8 },
         { kind: "token", chain: "base", symbol: "cbBTC", address: "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf", decimals: 8 },
         { kind: "token", chain: "optimism", symbol: "WBTC", address: "0x68f180fcce6836688e9084f035309e29bf0a2095", decimals: 8 },
@@ -66,7 +68,7 @@ const DEFAULT_APP_CONFIG = {
     BTC: [
       { chain: "bitcoin", kind: "native", symbol: "BTC", decimals: 8 },
       { chain: "ethereum", kind: "token", symbol: "WBTC", address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", decimals: 8 },
-      { chain: "arbitrum", kind: "token", symbol: "WBTC", address: "0x2f2a2543b76a4166549f7aab2e75bef0ae0f5b0f", decimals: 8 },
+      { chain: "arbitrum", kind: "token", symbol: "WBTC", address: ARBITRUM_WBTC_ADDRESS, decimals: 8 },
       { chain: "base", kind: "token", symbol: "WBTC", address: "0x0555e30da8f98308edb960aa94c0db47230d2b9c", decimals: 8 },
       { chain: "base", kind: "token", symbol: "cbBTC", address: "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf", decimals: 8 },
       { chain: "optimism", kind: "token", symbol: "WBTC", address: "0x68f180fcce6836688e9084f035309e29bf0a2095", decimals: 8 },
@@ -527,6 +529,23 @@ function canonicalMemberKey(groupKey, member) {
   const addr = normalizeAddressByChain(member.chain, member.address || "");
   return `${groupKey}|${member.kind}|${member.chain}|${addr || "native"}`;
 }
+function fixKnownAddressTypos(config) {
+  if (!config || typeof config !== "object") return config;
+  const fixEntry = (entry) => {
+    if (!entry || typeof entry !== "object") return;
+    if (s(entry.kind).toLowerCase() !== "token") return;
+    if (s(entry.chain).toLowerCase() !== "arbitrum") return;
+    if (s(entry.symbol).toUpperCase() !== "WBTC") return;
+    if (s(entry.address).toLowerCase() === ARBITRUM_WBTC_ADDRESS_OLD) entry.address = ARBITRUM_WBTC_ADDRESS;
+  };
+  for (const group of Object.values(config.groups || {})) {
+    for (const member of (group && Array.isArray(group.members) ? group.members : [])) fixEntry(member);
+  }
+  for (const aliases of Object.values(config.assetAliases || {})) {
+    for (const alias of (Array.isArray(aliases) ? aliases : [])) fixEntry(alias);
+  }
+  return config;
+}
 function ensureConfigShape(config) {
   if (!config.provider || typeof config.provider !== "object") config.provider = {};
   if (typeof config.provider.alchemyApiKey !== "string") config.provider.alchemyApiKey = "";
@@ -549,6 +568,7 @@ function ensureConfigShape(config) {
   }
   if (!config.assetAliases || typeof config.assetAliases !== "object") config.assetAliases = clone(DEFAULT_APP_CONFIG.assetAliases);
   if (typeof config.version !== "number") config.version = 2;
+  fixKnownAddressTypos(config);
   return config;
 }
 function applyAliasPreset() {
