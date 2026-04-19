@@ -308,6 +308,10 @@
       flex: 1;
     }
 
+    .wallet-label-input {
+      max-width: 180px;
+    }
+
     .wallet-chips {
       margin-top: 10px;
       display: flex;
@@ -331,6 +335,23 @@
 
     .chip-text {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    .wallet-label-edit {
+      width: 118px;
+      min-width: 92px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(4, 18, 3, 0.34);
+      background: rgba(255, 255, 255, 0.74);
+      color: #06220a;
+      font-size: 0.76rem;
+      font-weight: 700;
+    }
+
+    .wallet-label-edit:focus {
+      border-color: #0c6f2a;
+      box-shadow: 0 0 0 2px rgba(12, 111, 42, 0.2);
     }
 
     .chip-remove {
@@ -497,6 +518,36 @@
       font-size: 0.85rem;
       word-break: break-all;
     }
+
+    .address-with-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .wallet-label-pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.68rem;
+      font-family: "Segoe UI", "Inter", system-ui, -apple-system, sans-serif;
+      font-weight: 800;
+      letter-spacing: 0.2px;
+      border: 1px solid transparent;
+      max-width: 150px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .label-cyan { background: #092b36; color: #8de8ff; border-color: #1f4f5f; }
+    .label-lime { background: #152812; color: #b7f9a7; border-color: #2f5a28; }
+    .label-amber { background: #332107; color: #ffd89a; border-color: #5f3d13; }
+    .label-violet { background: #271733; color: #d9beff; border-color: #4b3272; }
+    .label-rose { background: #361723; color: #ffc3da; border-color: #71324a; }
+    .label-sky { background: #15263a; color: #b9ddff; border-color: #2d4f79; }
 
     .pill {
       display: inline-block;

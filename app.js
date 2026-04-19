@@ -61,7 +61,7 @@ const DEFAULT_APP_CONFIG = {
       ]
     }
   },
-  targets: { BTC: "0.2", ETH: "0", BNB: "0", SOL: "0" },
+  targets: { BTC: "0.2", ETH: "5", BNB: "3", SOL: "20" },
   assetAliases: {
     BTC: [
       { chain: "bitcoin", kind: "native", symbol: "BTC", decimals: 8 },
@@ -116,7 +116,7 @@ let lastRenderedErrors = [];
 
 const el = {
   scanBtn: q("#scanBtn"), copyWalletsBtn: q("#copyWalletsBtn"), addWalletBtn: q("#addWalletBtn"), resetRpcBtn: q("#resetRpcBtn"), status: q("#status"),
-  walletInput: q("#walletInput"), walletChips: q("#walletChips"), resultsBody: q("#resultsBody"),
+  walletInput: q("#walletInput"), walletLabelInput: q("#walletLabelInput"), walletChips: q("#walletChips"), resultsBody: q("#resultsBody"),
   errorSummary: q("#errorSummary"), breakdownBars: q("#breakdownBars"),
   holdingsPie: q("#holdingsPie"), holdingsPieCenter: q("#holdingsPieCenter"), holdingsLegend: q("#holdingsLegend"),
   groupTabs: q("#groupTabs"),
@@ -192,8 +192,12 @@ function bindEvents() {
   }
   el.addWalletBtn.addEventListener("click", addWalletsFromInputAndScan);
   el.walletInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addWalletsFromInputAndScan(); } });
+  if (el.walletLabelInput) {
+    el.walletLabelInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addWalletsFromInputAndScan(); } });
+  }
   el.alchemyApiKey.addEventListener("input", refreshStartupHint);
   el.walletChips.addEventListener("click", handleChipRemoveClick);
+  el.walletChips.addEventListener("input", handleWalletLabelChange);
   el.groupSelect.addEventListener("change", () => { selectedGroupKey = el.groupSelect.value; renderGroupEditor(); });
   el.groupTabs.addEventListener("click", handleGroupTabClick);
   el.memberKind.addEventListener("change", syncMemberKindUi);
@@ -248,12 +252,49 @@ function bindEvents() {
 }
 
 function q(selector) { return document.querySelector(selector); }
+function normalizeWalletLabel(label) { return s(label).replace(/\s+/g, " ").slice(0, 32); }
+function normalizeWalletEntry(entry) {
+  if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+    const address = s(entry.address);
+    if (!address) return null;
+    return { address, label: normalizeWalletLabel(entry.label) };
+  }
+  const address = s(entry);
+  if (!address) return null;
+  return { address, label: "" };
+}
+function normalizeWalletList(entries) {
+  const out = [];
+  const seen = new Set();
+  for (const rawEntry of (Array.isArray(entries) ? entries : [])) {
+    const entry = normalizeWalletEntry(rawEntry);
+    if (!entry) continue;
+    const key = entry.address.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(entry);
+  }
+  return out;
+}
+function walletAddresses() { return walletList.map((w) => w.address); }
+function walletLabelMap() {
+  const out = {};
+  for (const wallet of walletList) out[wallet.address] = wallet.label || "";
+  return out;
+}
+function labelColorClass(label) {
+  const variants = ["label-cyan", "label-lime", "label-amber", "label-violet", "label-rose", "label-sky"];
+  const txt = s(label).toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < txt.length; i++) hash = ((hash * 31) + txt.charCodeAt(i)) >>> 0;
+  return variants[hash % variants.length];
+}
 async function copyWalletAddresses() {
   if (!walletList.length) {
     setStatus("No tracked wallet addresses to copy.", true);
     return;
   }
-  const text = walletList.join("\n");
+  const text = walletAddresses().join("\n");
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text);
@@ -479,7 +520,11 @@ function loadWallets() {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.addresses) || localStorage.getItem(STORAGE_KEYS.legacyAddresses);
     if (!raw) { walletList = []; return; }
-    const parsed = JSON.parse(raw); walletList = Array.isArray(parsed) ? [...new Set(parsed.map(s).filter(Boolean))] : [...new Set(String(raw).split(/[\s,]+/g).map(s).filter(Boolean))];
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch (_e) { parsed = null; }
+    walletList = Array.isArray(parsed)
+      ? normalizeWalletList(parsed)
+      : normalizeWalletList(String(raw).split(/[\s,]+/g).map((address) => ({ address })));
   } catch (_e) { walletList = []; }
 }
 function saveWallets() { try { localStorage.setItem(STORAGE_KEYS.addresses, JSON.stringify(walletList)); } catch (_e) {} }
@@ -503,8 +548,38 @@ function applyUiSettings() {
   APP_CONFIG = next; saveConfig();
 }
 
-function renderWalletChips() { el.walletChips.innerHTML = walletList.map((a) => `<span class="wallet-chip"><span class="chip-text" title="${a}">${shortAddr(a)}</span><button class="chip-remove" type="button" data-address="${a}" title="Remove wallet">x</button></span>`).join(""); }
-function handleChipRemoveClick(e) { const btn = e.target.closest(".chip-remove"); if (!btn) return; const a = btn.getAttribute("data-address"); walletList = walletList.filter((v) => v !== a); delete walletDataByAddress[a]; saveWallets(); renderWalletChips(); startupHintDismissed = false; refreshStartupHint(); recompute(); }
+function renderWalletChips() {
+  el.walletChips.innerHTML = walletList.map((wallet) => `
+    <span class="wallet-chip">
+      <span class="chip-text" title="${escHtml(wallet.address)}">${shortAddr(wallet.address)}</span>
+      <input class="wallet-label-edit" type="text" maxlength="32" placeholder="Label" value="${escHtml(wallet.label || "")}" data-address="${escHtml(wallet.address)}" />
+      <button class="chip-remove" type="button" data-address="${escHtml(wallet.address)}" title="Remove wallet">x</button>
+    </span>
+  `).join("");
+}
+function handleChipRemoveClick(e) {
+  const btn = e.target.closest(".chip-remove");
+  if (!btn) return;
+  const a = btn.getAttribute("data-address");
+  walletList = walletList.filter((v) => v.address !== a);
+  delete walletDataByAddress[a];
+  saveWallets();
+  renderWalletChips();
+  startupHintDismissed = false;
+  refreshStartupHint();
+  recompute();
+}
+function handleWalletLabelChange(e) {
+  const input = e.target.closest(".wallet-label-edit");
+  if (!input) return;
+  const address = s(input.getAttribute("data-address"));
+  const wallet = walletList.find((w) => w.address === address);
+  if (!wallet) return;
+  wallet.label = normalizeWalletLabel(input.value);
+  input.value = wallet.label;
+  saveWallets();
+  recompute();
+}
 
 function renderGroupSelect() {
   const keys = Object.keys(APP_CONFIG.groups).sort();
@@ -765,7 +840,13 @@ async function scanBtcAddress(address) {
   return { rows, errors };
 }
 
-function scanSignature() { return JSON.stringify({ wallets: walletList.map((v) => v.toLowerCase()).sort(), config: APP_CONFIG }); }
+function scanSignature() {
+  return JSON.stringify({
+    wallets: walletList.map((v) => ({ address: v.address.toLowerCase(), label: normalizeWalletLabel(v.label) }))
+      .sort((a, b) => a.address.localeCompare(b.address)),
+    config: APP_CONFIG
+  });
+}
 function serializeData(data) { const out = {}; for (const [k, v] of Object.entries(data || {})) out[k] = { rows: (v.rows || []).map((r) => ({ ...r, baseRaw: (r.baseRaw || 0n).toString(), rawAmount: (r.rawAmount || 0n).toString() })), errors: v.errors || [] }; return out; }
 function deserializeData(data) { const out = {}; for (const [k, v] of Object.entries(data || {})) out[k] = { rows: (v.rows || []).map((r) => ({ ...r, baseRaw: BigInt(r.baseRaw || r.satsRaw || "0"), rawAmount: BigInt(r.rawAmount || "0") })), errors: v.errors || [] }; return out; }
 function saveLastScan() { try { localStorage.setItem(STORAGE_KEYS.lastScan, JSON.stringify({ timestamp: Date.now(), signature: scanSignature(), walletList, walletDataByAddress: serializeData(walletDataByAddress) })); } catch (_e) {} }
@@ -777,7 +858,14 @@ function loadLastScan() {
 }
 async function initializeFromCacheOrScan() {
   const c = loadLastScan();
-  if (c && c.signature === scanSignature() && c.timestamp && (Date.now() - Number(c.timestamp)) < CACHE_MAX_AGE_MS) { walletList = Array.isArray(c.walletList) ? [...new Set(c.walletList)] : walletList; walletDataByAddress = c.walletDataByAddress || {}; renderWalletChips(); recompute(); setStatus("Loaded cached balances."); return; }
+  if (c && c.signature === scanSignature() && c.timestamp && (Date.now() - Number(c.timestamp)) < CACHE_MAX_AGE_MS) {
+    walletList = normalizeWalletList(c.walletList);
+    walletDataByAddress = c.walletDataByAddress || {};
+    renderWalletChips();
+    recompute();
+    setStatus("Loaded cached balances.");
+    return;
+  }
   if (walletList.length) { setStatus("Auto-refreshing balances..."); await runScan(); }
 }
 
@@ -797,6 +885,7 @@ function groupSummaries(rows) {
 }
 
 function render(rows, errors, skipUsdRefresh = false) {
+  const labelsByAddress = walletLabelMap();
   lastRenderedRows = rows;
   lastRenderedErrors = errors;
   const decorated = decorateRows(rows).sort((a, b) => a.groupKey.localeCompare(b.groupKey) || ((a.baseRaw || 0n) > (b.baseRaw || 0n) ? -1 : 1));
@@ -819,7 +908,9 @@ function render(rows, errors, skipUsdRefresh = false) {
     const price = groupUsdPriceByKey[r.groupKey];
     const usdHoldings = Number.isFinite(price) ? toFloatUnits(r.baseRaw || 0n, r.groupDecimals || 0) * price : null;
     const usdCell = usdHoldings === null ? "--" : `$${formatUsd(usdHoldings)}`;
-    return `<tr><td class="mono" title="${r.address}">${shortAddr(r.address)}</td><td class="logo-cell">${coinCell}</td><td>${r.balance}</td><td class="mono">${usdCell}</td><td class="share-cell"><div class="share-wrap"><span class="share-value">${r.shareText}</span><span class="share-track"><span class="share-fill" style="width:${Math.max(0, Math.min(100, r.sharePct))}%"></span></span></div></td></tr>`;
+    const label = normalizeWalletLabel(labelsByAddress[r.address] || "");
+    const labelPill = label ? `<span class="wallet-label-pill ${labelColorClass(label)}" title="${escHtml(label)}">${escHtml(label)}</span>` : "";
+    return `<tr><td class="mono" title="${r.address}"><span class="address-with-label">${shortAddr(r.address)}${labelPill}</span></td><td class="logo-cell">${coinCell}</td><td>${r.balance}</td><td class="mono">${usdCell}</td><td class="share-cell"><div class="share-wrap"><span class="share-value">${r.shareText}</span><span class="share-track"><span class="share-fill" style="width:${Math.max(0, Math.min(100, r.sharePct))}%"></span></span></div></td></tr>`;
   }).join("");
   el.errorSummary.innerHTML = errors.length ? `<span class="error">Fetch errors:</span> ${errors.map((e) => `<span class="pill">${e}</span>`).join(" ")}` : "";
   const sourceCounts = new Map();
@@ -891,7 +982,13 @@ async function refreshGroupUsdPrices(sums) {
 }
 function recompute() {
   const rows = []; const errors = [];
-  for (const addr of walletList) { const d = walletDataByAddress[addr]; if (!d) continue; rows.push(...(d.rows || [])); for (const e of (d.errors || [])) errors.push(`${shortAddr(addr)} ${e}`); }
+  for (const wallet of walletList) {
+    const addr = wallet.address;
+    const d = walletDataByAddress[addr];
+    if (!d) continue;
+    rows.push(...(d.rows || []));
+    for (const e of (d.errors || [])) errors.push(`${shortAddr(addr)} ${e}`);
+  }
   render(rows, errors); saveLastScan();
 }
 
@@ -918,8 +1015,15 @@ async function scanAddressesAndMerge(addresses) {
 async function addWalletsFromInputAndScan() {
   const incoming = [...new Set(String(el.walletInput.value || "").split(/[\s,]+/g).map(s).filter(Boolean))];
   if (!incoming.length) return setStatus("Paste at least one wallet address to add.", true);
-  const fresh = incoming.filter((a) => !walletList.includes(a)); el.walletInput.value = ""; if (!fresh.length) return setStatus("No new wallets to add.");
-  walletList = [...walletList, ...fresh]; saveWallets(); renderWalletChips();
+  const label = normalizeWalletLabel(el.walletLabelInput ? el.walletLabelInput.value : "");
+  const known = new Set(walletAddresses().map((a) => a.toLowerCase()));
+  const fresh = incoming.filter((a) => !known.has(a.toLowerCase()));
+  el.walletInput.value = "";
+  if (el.walletLabelInput) el.walletLabelInput.value = "";
+  if (!fresh.length) return setStatus("No new wallets to add.");
+  walletList = [...walletList, ...fresh.map((address) => ({ address, label }))];
+  saveWallets();
+  renderWalletChips();
   startupHintDismissed = false;
   refreshStartupHint();
   try { applyUiSettings(); } catch (e) { return setStatus(e.message || "Invalid settings.", true); }
@@ -932,7 +1036,7 @@ async function runScan() {
   try { applyUiSettings(); } catch (e) { return setStatus(e.message || "Invalid settings.", true); }
   if (!saveGroup()) return;
   walletDataByAddress = {};
-  await scanAddressesAndMerge(walletList);
+  await scanAddressesAndMerge(walletAddresses());
 }
 
 function setStatus(text, isError = false) { el.status.textContent = text; el.status.className = isError ? "status error" : "status"; }
