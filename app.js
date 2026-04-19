@@ -109,11 +109,16 @@ let walletDataByAddress = {};
 let selectedGroupKey = "";
 let selectedDisplayGroup = "ALL";
 let startupHintDismissed = false;
+let groupUsdPriceByKey = {};
+let usdPriceFetchNonce = 0;
+let lastRenderedRows = [];
+let lastRenderedErrors = [];
 
 const el = {
   scanBtn: q("#scanBtn"), copyWalletsBtn: q("#copyWalletsBtn"), addWalletBtn: q("#addWalletBtn"), resetRpcBtn: q("#resetRpcBtn"), status: q("#status"),
   walletInput: q("#walletInput"), walletChips: q("#walletChips"), resultsBody: q("#resultsBody"),
   errorSummary: q("#errorSummary"), breakdownBars: q("#breakdownBars"),
+  holdingsPie: q("#holdingsPie"), holdingsPieCenter: q("#holdingsPieCenter"), holdingsLegend: q("#holdingsLegend"),
   groupTabs: q("#groupTabs"),
   floatingTooltip: q("#floatingTooltip"),
   sourceSummary: q("#sourceSummary"),
@@ -320,6 +325,67 @@ function formatFixedUnits(value, decimals, places = 3) {
   const whole = parts[0] || "0";
   const frac = (parts[1] || "").padEnd(places, "0").slice(0, places);
   return `${neg ? "-" : ""}${whole}.${frac}`;
+}
+function formatUsd(value) {
+  if (!Number.isFinite(value)) return "--";
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function escHtml(text) {
+  return String(text ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+function toFloatUnits(value, decimals) {
+  const txt = formatUnits(value, decimals);
+  const n = Number(txt);
+  return Number.isFinite(n) ? n : 0;
+}
+function renderUsdAllocationPie(rows) {
+  if (!el.holdingsPie || !el.holdingsLegend || !el.holdingsPieCenter) return;
+  const colors = ["#42d392", "#3d8bfd", "#ffb020", "#ff7b72", "#8f7cff", "#15c2d1", "#9bd147", "#ff6bb5", "#8ea1b4", "#d7e7f5"];
+  const byGroup = new Map();
+  for (const row of (rows || [])) {
+    if ((row.baseRaw || 0n) <= 0n) continue;
+    const price = groupUsdPriceByKey[row.groupKey];
+    if (!Number.isFinite(price)) continue;
+    const usd = toFloatUnits(row.baseRaw || 0n, row.groupDecimals || 0) * price;
+    if (!Number.isFinite(usd) || usd <= 0) continue;
+    const groupKey = row.groupKey || "UNKNOWN";
+    byGroup.set(groupKey, (byGroup.get(groupKey) || 0) + usd);
+  }
+  const items = [...byGroup.entries()]
+    .map(([name, usd]) => ({ name, usd }))
+    .sort((a, b) => b.usd - a.usd);
+  const total = items.reduce((sum, x) => sum + x.usd, 0);
+  if (!items.length || total <= 0) {
+    el.holdingsPie.style.background = "#1a2330";
+    el.holdingsPieCenter.textContent = "No USD data";
+    el.holdingsLegend.innerHTML = `<div class="break-label">Run scan / wait for prices to load.</div>`;
+    return;
+  }
+
+  let accPct = 0;
+  const segments = [];
+  for (let i = 0; i < items.length; i++) {
+    const pct = i === items.length - 1 ? (100 - accPct) : (items[i].usd / total) * 100;
+    const start = accPct;
+    const end = Math.min(100, accPct + pct);
+    const color = colors[i % colors.length];
+    segments.push(`${color} ${start.toFixed(4)}% ${end.toFixed(4)}%`);
+    items[i].pct = pct;
+    items[i].color = color;
+    accPct = end;
+  }
+  el.holdingsPie.style.background = `conic-gradient(${segments.join(", ")})`;
+  el.holdingsPieCenter.textContent = `$${formatUsd(total)}`;
+  el.holdingsLegend.innerHTML = items.map((item) => {
+    const pctText = `${item.pct.toFixed(2)}%`;
+    const usdText = `$${formatUsd(item.usd)}`;
+    return `<div class="holdings-legend-row"><span class="holdings-legend-main"><span class="legend-dot" style="background:${item.color}"></span><span class="holdings-legend-name">${escHtml(item.name)}</span></span><span class="holdings-legend-val">${pctText} (${usdText})</span></div>`;
+  }).join("");
 }
 function parseUnits(input, decimals) { const t = s(input || "0"); if (!/^\d+(\.\d+)?$/.test(t)) throw new Error("numeric only"); const [a, b = ""] = t.split("."); if (b.length > decimals) throw new Error(`max ${decimals} dp`); return BigInt(a) * (10n ** BigInt(decimals)) + BigInt((b + "0".repeat(decimals)).slice(0, decimals)); }
 function convertRaw(v, fromD, toD) { if (fromD === toD) return v; return fromD > toD ? v / (10n ** BigInt(fromD - toD)) : v * (10n ** BigInt(toD - fromD)); }
@@ -730,7 +796,9 @@ function groupSummaries(rows) {
   return out;
 }
 
-function render(rows, errors) {
+function render(rows, errors, skipUsdRefresh = false) {
+  lastRenderedRows = rows;
+  lastRenderedErrors = errors;
   const decorated = decorateRows(rows).sort((a, b) => a.groupKey.localeCompare(b.groupKey) || ((a.baseRaw || 0n) > (b.baseRaw || 0n) ? -1 : 1));
   const filtered = selectedDisplayGroup === "ALL" ? decorated : decorated.filter((r) => r.groupKey === selectedDisplayGroup);
   const sums = groupSummaries(rows);
@@ -748,7 +816,10 @@ function render(rows, errors) {
         <span class="token-label">${r.coin}</span>
       </span>
     `;
-    return `<tr><td class="mono" title="${r.address}">${shortAddr(r.address)}</td><td class="logo-cell">${coinCell}</td><td>${r.balance}</td><td class="share-cell"><div class="share-wrap"><span class="share-value">${r.shareText}</span><span class="share-track"><span class="share-fill" style="width:${Math.max(0, Math.min(100, r.sharePct))}%"></span></span></div></td></tr>`;
+    const price = groupUsdPriceByKey[r.groupKey];
+    const usdHoldings = Number.isFinite(price) ? toFloatUnits(r.baseRaw || 0n, r.groupDecimals || 0) * price : null;
+    const usdCell = usdHoldings === null ? "--" : `$${formatUsd(usdHoldings)}`;
+    return `<tr><td class="mono" title="${r.address}">${shortAddr(r.address)}</td><td class="logo-cell">${coinCell}</td><td>${r.balance}</td><td class="mono">${usdCell}</td><td class="share-cell"><div class="share-wrap"><span class="share-value">${r.shareText}</span><span class="share-track"><span class="share-fill" style="width:${Math.max(0, Math.min(100, r.sharePct))}%"></span></span></div></td></tr>`;
   }).join("");
   el.errorSummary.innerHTML = errors.length ? `<span class="error">Fetch errors:</span> ${errors.map((e) => `<span class="pill">${e}</span>`).join(" ")}` : "";
   const sourceCounts = new Map();
@@ -767,7 +838,9 @@ function render(rows, errors) {
       el.sourceSummary.textContent = `Source summary (current tab): ${parts.join(", ")}`;
     }
   }
+  renderUsdAllocationPie(decorated);
   renderBreakdown(sums);
+  if (!skipUsdRefresh) void refreshGroupUsdPrices(sums);
 }
 
 function renderBreakdown(sums) {
@@ -780,13 +853,41 @@ function renderBreakdown(sums) {
   el.breakdownBars.innerHTML = items.map((s) => {
     const pct = s.targetRaw > 0n ? (s.progress || 0) : 0;
     const barWidth = Math.max(0, Math.min(100, pct));
-    const pctDisplay = `${pct.toFixed(2)}%`;
+    const price = groupUsdPriceByKey[s.groupKey];
+    const usdHoldings = Number.isFinite(price) ? toFloatUnits(s.currentRaw, s.decimals) * price : null;
+    const pctDisplay = usdHoldings === null ? `${pct.toFixed(2)}%` : `${pct.toFixed(2)}% ($${formatUsd(usdHoldings)})`;
     const hoverPct = `${Math.round(pct)}%`;
     const currentFmt = formatFixedUnits(s.currentRaw, s.decimals, 3);
     const targetFmt = formatFixedUnits(s.targetRaw, s.decimals, 3);
-    const hoverText = `${currentFmt} / ${targetFmt} ${s.groupKey} (${hoverPct})`;
+    const usdHover = usdHoldings === null ? "USD n/a" : `$${formatUsd(usdHoldings)}`;
+    const hoverText = `${currentFmt} / ${targetFmt} ${s.groupKey} (${hoverPct}, ${usdHover})`;
     return `<div class="break-row" data-tooltip="${hoverText}"><div class="break-head"><span class="break-name">${s.groupKey}</span><span class="break-pct">${pctDisplay}</span></div><div class="break-track"><div class="break-fill" style="width:${barWidth}%;"></div></div></div>`;
   }).join("");
+}
+async function fetchCoinbaseSpotUsd(symbol) {
+  const pair = `${symbol}-USD`;
+  const res = await fetch(`https://api.coinbase.com/v2/prices/${encodeURIComponent(pair)}/spot`);
+  if (!res.ok) throw new Error(`Coinbase ${pair} HTTP ${res.status}`);
+  const data = await res.json();
+  const amount = Number(data?.data?.amount);
+  if (!Number.isFinite(amount)) throw new Error(`Coinbase ${pair} invalid amount`);
+  return amount;
+}
+async function refreshGroupUsdPrices(sums) {
+  const groupKeys = [...new Set((sums || []).map((x) => x.groupKey).filter(Boolean))];
+  if (!groupKeys.length) return;
+  const nonce = ++usdPriceFetchNonce;
+  const updates = {};
+  await Promise.all(groupKeys.map(async (groupKey) => {
+    try {
+      updates[groupKey] = await fetchCoinbaseSpotUsd(groupKey);
+    } catch (_e) {
+      updates[groupKey] = null;
+    }
+  }));
+  if (nonce !== usdPriceFetchNonce) return;
+  groupUsdPriceByKey = { ...groupUsdPriceByKey, ...updates };
+  render(lastRenderedRows, lastRenderedErrors, true);
 }
 function recompute() {
   const rows = []; const errors = [];
