@@ -113,6 +113,8 @@ let groupUsdPriceByKey = {};
 let usdPriceFetchNonce = 0;
 let lastRenderedRows = [];
 let lastRenderedErrors = [];
+let selectedWalletFilter = "ALL";
+let walletFilterMenuOpen = false;
 
 const el = {
   scanBtn: q("#scanBtn"), copyWalletsBtn: q("#copyWalletsBtn"), addWalletBtn: q("#addWalletBtn"), resetRpcBtn: q("#resetRpcBtn"), status: q("#status"),
@@ -120,6 +122,7 @@ const el = {
   errorSummary: q("#errorSummary"), breakdownBars: q("#breakdownBars"),
   holdingsPie: q("#holdingsPie"), holdingsPieCenter: q("#holdingsPieCenter"), holdingsLegend: q("#holdingsLegend"),
   groupTabs: q("#groupTabs"),
+  walletFilterMenu: q("#walletFilterMenu"),
   floatingTooltip: q("#floatingTooltip"),
   sourceSummary: q("#sourceSummary"),
   startupHint: q("#startupHint"), startupHintCloseBtn: q("#startupHintCloseBtn"),
@@ -200,6 +203,9 @@ function bindEvents() {
   el.walletChips.addEventListener("input", handleWalletLabelChange);
   el.groupSelect.addEventListener("change", () => { selectedGroupKey = el.groupSelect.value; renderGroupEditor(); });
   el.groupTabs.addEventListener("click", handleGroupTabClick);
+  if (el.walletFilterMenu) {
+    el.walletFilterMenu.addEventListener("click", handleWalletFilterMenuClick);
+  }
   el.memberKind.addEventListener("change", syncMemberKindUi);
   el.addGroupBtn.addEventListener("click", addGroup);
   el.saveGroupBtn.addEventListener("click", saveGroup);
@@ -238,6 +244,16 @@ function bindEvents() {
     if (event.key === "Escape" && el.settingsModal && el.settingsModal.classList.contains("show")) {
       closeSettingsModal();
     }
+    if (event.key === "Escape" && walletFilterMenuOpen) {
+      walletFilterMenuOpen = false;
+      renderWalletFilterOptions();
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (!walletFilterMenuOpen || !el.walletFilterMenu) return;
+    if (el.walletFilterMenu.contains(event.target)) return;
+    walletFilterMenuOpen = false;
+    renderWalletFilterOptions();
   });
   if (el.breakdownBars) {
     el.breakdownBars.addEventListener("mousemove", handleBreakdownTooltipMove);
@@ -281,6 +297,77 @@ function walletLabelMap() {
   const out = {};
   for (const wallet of walletList) out[wallet.address] = wallet.label || "";
   return out;
+}
+function walletByAddressMap() {
+  const out = {};
+  for (const wallet of walletList) out[wallet.address.toLowerCase()] = wallet;
+  return out;
+}
+function normalizeFilterValue(v) { return s(v || "").toLowerCase(); }
+function walletFilterDisplayHtml(option) {
+  if (!option || option.type === "all") return `<span class="wallet-filter-main">All wallets</span>`;
+  if (option.type === "label") {
+    const label = option.label || "";
+    return `<span class="wallet-filter-main">Label <span class="wallet-label-pill ${labelColorClass(label)}">${escHtml(label)}</span></span>`;
+  }
+  const label = normalizeWalletLabel(option.label || "");
+  const pill = label ? `<span class="wallet-label-pill ${labelColorClass(label)}">${escHtml(label)}</span>` : "";
+  return `<span class="wallet-filter-main"><span class="wallet-filter-addr">${shortAddr(option.address || "")}</span>${pill}</span>`;
+}
+function renderWalletFilterOptions() {
+  if (!el.walletFilterMenu) return;
+  const labelSet = new Set();
+  const walletOptions = [];
+  for (const wallet of walletList) {
+    const label = normalizeWalletLabel(wallet.label || "");
+    if (label) labelSet.add(label);
+    walletOptions.push({
+      type: "address",
+      value: `addr::${wallet.address.toLowerCase()}`,
+      label,
+      address: wallet.address
+    });
+  }
+  const labelOptions = [...labelSet]
+    .sort((a, b) => a.localeCompare(b))
+    .map((label) => ({ type: "label", value: `label::${normalizeFilterValue(label)}`, label }));
+  const allOptions = [
+    { type: "all", value: "ALL" },
+    ...labelOptions,
+    ...walletOptions
+  ];
+  const valid = new Set(allOptions.map((opt) => opt.value));
+  if (!valid.has(selectedWalletFilter)) selectedWalletFilter = "ALL";
+  const selected = allOptions.find((opt) => opt.value === selectedWalletFilter) || allOptions[0];
+  const listHtml = allOptions.map((opt) => {
+    const active = opt.value === selectedWalletFilter ? "active" : "";
+    return `<button type="button" class="wallet-filter-item ${active}" data-wallet-filter-value="${escHtml(opt.value)}">${walletFilterDisplayHtml(opt)}</button>`;
+  }).join("");
+  el.walletFilterMenu.innerHTML = `
+    <button type="button" class="wallet-filter-trigger ${walletFilterMenuOpen ? "open" : ""}" aria-expanded="${walletFilterMenuOpen ? "true" : "false"}">
+      <span class="wallet-filter-label">Wallet Address</span>
+      <span class="wallet-filter-selected">${walletFilterDisplayHtml(selected)}</span>
+      <span class="wallet-filter-caret">&#9662;</span>
+    </button>
+    <div class="wallet-filter-list ${walletFilterMenuOpen ? "show" : ""}">
+      ${listHtml}
+    </div>
+  `;
+}
+function handleWalletFilterMenuClick(event) {
+  event.stopPropagation();
+  const item = event.target.closest("[data-wallet-filter-value]");
+  if (item) {
+    selectedWalletFilter = item.getAttribute("data-wallet-filter-value") || "ALL";
+    walletFilterMenuOpen = false;
+    renderWalletFilterOptions();
+    recompute();
+    return;
+  }
+  const trigger = event.target.closest(".wallet-filter-trigger");
+  if (!trigger) return;
+  walletFilterMenuOpen = !walletFilterMenuOpen;
+  renderWalletFilterOptions();
 }
 function labelColorClass(label) {
   const variants = ["label-cyan", "label-lime", "label-amber", "label-violet", "label-rose", "label-sky"];
@@ -556,6 +643,7 @@ function renderWalletChips() {
       <button class="chip-remove" type="button" data-address="${escHtml(wallet.address)}" title="Remove wallet">x</button>
     </span>
   `).join("");
+  renderWalletFilterOptions();
 }
 function handleChipRemoveClick(e) {
   const btn = e.target.closest(".chip-remove");
@@ -578,6 +666,7 @@ function handleWalletLabelChange(e) {
   wallet.label = normalizeWalletLabel(input.value);
   input.value = wallet.label;
   saveWallets();
+  renderWalletFilterOptions();
   recompute();
 }
 
@@ -886,10 +975,23 @@ function groupSummaries(rows) {
 
 function render(rows, errors, skipUsdRefresh = false) {
   const labelsByAddress = walletLabelMap();
+  const walletByAddress = walletByAddressMap();
   lastRenderedRows = rows;
   lastRenderedErrors = errors;
   const decorated = decorateRows(rows).sort((a, b) => a.groupKey.localeCompare(b.groupKey) || ((a.baseRaw || 0n) > (b.baseRaw || 0n) ? -1 : 1));
-  const filtered = selectedDisplayGroup === "ALL" ? decorated : decorated.filter((r) => r.groupKey === selectedDisplayGroup);
+  const byGroup = selectedDisplayGroup === "ALL" ? decorated : decorated.filter((r) => r.groupKey === selectedDisplayGroup);
+  const filtered = byGroup.filter((r) => {
+    if (selectedWalletFilter === "ALL") return true;
+    if (selectedWalletFilter.startsWith("addr::")) {
+      return r.address.toLowerCase() === selectedWalletFilter.slice(6);
+    }
+    if (selectedWalletFilter.startsWith("label::")) {
+      const wallet = walletByAddress[r.address.toLowerCase()];
+      const label = normalizeFilterValue(wallet ? wallet.label : "");
+      return label === selectedWalletFilter.slice(7);
+    }
+    return true;
+  });
   const sums = groupSummaries(rows);
   el.resultsBody.innerHTML = filtered.filter((r) => (r.baseRaw || 0n) > 0n).map((r) => {
     const chainLogo = CHAIN_LOGOS[r.chain];
