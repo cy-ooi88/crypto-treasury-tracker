@@ -129,6 +129,7 @@ const el = {
   sourceSummary: q("#sourceSummary"),
   startupHint: q("#startupHint"), startupHintCloseBtn: q("#startupHintCloseBtn"),
   openSettingsBtn: q("#openSettingsBtn"), closeSettingsBtn: q("#closeSettingsBtn"), settingsModal: q("#settingsModal"),
+  openCreateGroupBtn: q("#openCreateGroupBtn"), closeCreateGroupBtn: q("#closeCreateGroupBtn"), createGroupModal: q("#createGroupModal"),
   fakeChatbotBtn: q("#fakeChatbotBtn"), fakeChatbotMsg: q("#fakeChatbotMsg"),
   alchemyApiKey: q("#alchemyApiKey"), groupSelect: q("#groupSelect"), groupKey: q("#groupKeyInput"), groupName: q("#groupNameInput"),
   groupDecimals: q("#groupDecimalsInput"), groupTarget: q("#groupTargetInput"), newGroupKey: q("#newGroupKeyInput"),
@@ -242,7 +243,31 @@ function bindEvents() {
       }
     });
   }
+  if (el.openCreateGroupBtn && el.createGroupModal) {
+    el.openCreateGroupBtn.addEventListener("click", openCreateGroupModal);
+  }
+  if (el.closeCreateGroupBtn && el.createGroupModal) {
+    el.closeCreateGroupBtn.addEventListener("click", closeCreateGroupModal);
+  }
+  if (el.createGroupModal) {
+    el.createGroupModal.addEventListener("click", (event) => {
+      if (event.target === el.createGroupModal) {
+        closeCreateGroupModal();
+      }
+    });
+  }
+  if (el.newGroupKey) {
+    el.newGroupKey.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      addGroup();
+    });
+  }
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && el.createGroupModal && el.createGroupModal.classList.contains("show")) {
+      closeCreateGroupModal();
+      return;
+    }
     if (event.key === "Escape" && el.settingsModal && el.settingsModal.classList.contains("show")) {
       closeSettingsModal();
     }
@@ -270,6 +295,19 @@ function bindEvents() {
 }
 
 function q(selector) { return document.querySelector(selector); }
+function openCreateGroupModal() {
+  if (!el.createGroupModal) return;
+  el.createGroupModal.classList.add("show");
+  el.createGroupModal.setAttribute("aria-hidden", "false");
+  if (el.newGroupKey) {
+    setTimeout(() => el.newGroupKey.focus(), 0);
+  }
+}
+function closeCreateGroupModal() {
+  if (!el.createGroupModal) return;
+  el.createGroupModal.classList.remove("show");
+  el.createGroupModal.setAttribute("aria-hidden", "true");
+}
 function normalizeWalletLabel(label) { return s(label).replace(/\s+/g, " ").slice(0, 32); }
 function normalizeWalletEntry(entry) {
   if (entry && typeof entry === "object" && !Array.isArray(entry)) {
@@ -788,7 +826,7 @@ async function addGroup() {
   const key = s(el.newGroupKey.value).toUpperCase();
   if (!/^[A-Z0-9_]{2,20}$/.test(key)) return setStatus("New group key must be 2-20 chars with A-Z, 0-9, _.", true);
   if (APP_CONFIG.groups[key]) return setStatus(`Group ${key} already exists.`, true);
-  APP_CONFIG.groups[key] = { key, name: `${key} Basket`, decimals: key === "SOL" ? 9 : 18, members: [] }; APP_CONFIG.targets[key] = "0"; selectedGroupKey = key; el.newGroupKey.value = ""; saveConfig(); renderGroupSelect(); renderGroupEditor(); renderGroupTabs(); recompute();
+  APP_CONFIG.groups[key] = { key, name: `${key} Basket`, decimals: key === "SOL" ? 9 : 18, members: [] }; APP_CONFIG.targets[key] = "0"; selectedGroupKey = key; el.newGroupKey.value = ""; saveConfig(); renderGroupSelect(); renderGroupEditor(); renderGroupTabs(); recompute(); closeCreateGroupModal(); setStatus(`Created group ${key}.`);
 }
 async function saveGroup() {
   const g = APP_CONFIG.groups[selectedGroupKey]; if (!g) return;

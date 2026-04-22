@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Crypto Treasury Accumulation Tracker</title>
-  <link rel="stylesheet" href="styles.css?v=20260419b" />
+  <link rel="stylesheet" href="styles.css?v=20260422c" />
 </head>
 <body>
   <div class="wrap">
@@ -152,14 +152,10 @@
             <label for="groupDecimalsInput">Group Decimals</label>
             <input id="groupDecimalsInput" type="number" min="0" max="30" />
           </div>
-          <div class="rpc-item">
-            <label for="newGroupKeyInput">New Group Key</label>
-            <input id="newGroupKeyInput" type="text" placeholder="SOL" />
-          </div>
         </div>
         <div class="row">
           <button id="saveGroupBtn" type="button">Save Group</button>
-          <button id="addGroupBtn" type="button">Add Group</button>
+          <button id="openCreateGroupBtn" type="button">Create New Group</button>
           <button id="deleteGroupBtn" type="button">Delete Group</button>
           <button id="applyAliasPresetBtn" type="button">Apply Alias Preset</button>
         </div>
@@ -198,6 +194,22 @@
       <div class="note">Managed provider (`Alchemy`) is primary for EVM and Solana balances. RPC lists are used as fallback. Native BTC is fetched from Bitcoin explorer APIs.</div>
     </aside>
   </div>
+  <div id="createGroupModal" class="settings-modal modal-center" aria-hidden="true">
+    <aside class="panel create-group-panel">
+      <div class="settings-head">
+        <h2>Create New Group</h2>
+        <button id="closeCreateGroupBtn" class="settings-close-btn" type="button" title="Close create group window">x</button>
+      </div>
+      <div class="rpc-item">
+        <label for="newGroupKeyInput">New Group Key</label>
+        <input id="newGroupKeyInput" type="text" placeholder="SOL" />
+      </div>
+      <div class="create-group-note">Use 2-20 characters with A-Z, 0-9, or underscore.</div>
+      <div class="row">
+        <button id="addGroupBtn" type="button">Create Group</button>
+      </div>
+    </aside>
+  </div>
   <div id="startupHint" class="startup-hint" aria-live="polite">
     <button id="startupHintCloseBtn" class="startup-hint-close" type="button" title="Dismiss">x</button>
     <div class="startup-hint-title">Getting Started</div>
@@ -212,6 +224,6 @@
   <button id="fakeChatbotBtn" class="fake-chatbot" type="button" title="Click me">
     <img src="assets/profile_pic.jfif" alt="Profile" />
   </button>
-  <div id="fakeChatbotMsg" class="fake-chatbot-msg" role="status" aria-live="polite"></div><script src="app.js?v=20260422a"></script>
+  <div id="fakeChatbotMsg" class="fake-chatbot-msg" role="status" aria-live="polite"></div><script src="app.js?v=20260422c"></script>
 </body>
 </html>
