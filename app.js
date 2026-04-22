@@ -212,13 +212,13 @@ function bindEvents() {
   el.addGroupBtn.addEventListener("click", addGroup);
   el.saveGroupBtn.addEventListener("click", saveGroup);
   el.deleteGroupBtn.addEventListener("click", deleteGroup);
-  if (el.applyAliasPresetBtn) el.applyAliasPresetBtn.addEventListener("click", () => {
+  if (el.applyAliasPresetBtn) el.applyAliasPresetBtn.addEventListener("click", async () => {
     const added = applyAliasPreset();
     renderGroupSelect();
     renderGroupEditor();
     renderGroupTabs();
-    recompute();
-    setStatus(added > 0 ? `Alias preset applied (${added} new member(s)).` : "Alias preset already applied.");
+    if (added > 0) await refreshBalancesAfterMembershipChange(`Alias preset applied (${added} new member(s)).`);
+    else { recompute(); setStatus("Alias preset already applied."); }
   });
   el.addMemberBtn.addEventListener("click", addMember);
   el.memberList.addEventListener("click", removeMember);
@@ -565,11 +565,66 @@ function ensureConfigShape(config) {
   for (const [k, group] of Object.entries(config.groups)) {
     if (typeof config.targets[k] !== "string") config.targets[k] = "0";
     if (!Array.isArray(group.members)) group.members = [];
+    group.key = s(group.key) || k;
+    group.name = s(group.name) || `${k} Basket`;
+    group.decimals = clampInt(group.decimals, 0, 30, DEFAULT_APP_CONFIG.groups[k] ? DEFAULT_APP_CONFIG.groups[k].decimals : 18);
+    const seen = new Set();
+    const normalizedMembers = [];
+    for (const member of group.members) {
+      const normalized = normalizeMemberEntry(config, k, group, member);
+      if (!normalized) continue;
+      const key = canonicalMemberKey(k, normalized);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      normalizedMembers.push(normalized);
+    }
+    group.members = normalizedMembers;
   }
   if (!config.assetAliases || typeof config.assetAliases !== "object") config.assetAliases = clone(DEFAULT_APP_CONFIG.assetAliases);
+  for (const [groupKey, aliases] of Object.entries(config.assetAliases || {})) {
+    const group = config.groups[groupKey] || { decimals: 18 };
+    const seen = new Set();
+    const normalizedAliases = [];
+    for (const alias of (Array.isArray(aliases) ? aliases : [])) {
+      const normalized = normalizeMemberEntry(config, groupKey, group, alias);
+      if (!normalized) continue;
+      const key = canonicalMemberKey(groupKey, normalized);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      normalizedAliases.push(normalized);
+    }
+    config.assetAliases[groupKey] = normalizedAliases;
+  }
   if (typeof config.version !== "number") config.version = 2;
   fixKnownAddressTypos(config);
   return config;
+}
+function resolveChainKey(config, rawChain) {
+  const input = s(rawChain);
+  if (!input) return "";
+  if (config.chains[input]) return input;
+  const lower = input.toLowerCase();
+  for (const [key, chain] of Object.entries(config.chains || {})) {
+    if (key.toLowerCase() === lower) return key;
+    if (s(chain && chain.key).toLowerCase() === lower) return key;
+    if (s(chain && chain.name).toLowerCase() === lower) return key;
+  }
+  return lower;
+}
+function normalizeMemberEntry(config, groupKey, group, member) {
+  if (!member || typeof member !== "object") return null;
+  const chain = resolveChainKey(config, member.chain);
+  if (!config.chains[chain]) return null;
+  const chainInfo = config.chains[chain];
+  const kind = s(member.kind).toLowerCase() === "token" ? "token" : "native";
+  const symbol = s(member.symbol) || groupKey;
+  const decimals = clampInt(member.decimals, 0, 30, group.decimals);
+  const rawAddress = kind === "token" ? s(member.address) : "";
+  const address = (kind === "token" && chainInfo.type === "evm") ? rawAddress.toLowerCase() : rawAddress;
+  if (kind === "token" && chainInfo.type === "evm" && !EVM_REGEX.test(address)) return null;
+  if (kind === "token" && chainInfo.type === "solana" && !SOLANA_ADDR_REGEX.test(address)) return null;
+  if (kind === "token" && chainInfo.type !== "evm" && chainInfo.type !== "solana") return null;
+  return { kind, chain, symbol, address: kind === "token" ? address : "", decimals };
 }
 function applyAliasPreset() {
   APP_CONFIG = ensureConfigShape(APP_CONFIG);
@@ -721,24 +776,37 @@ function handleGroupTabClick(e) {
 }
 function populateMemberChainOptions() { el.memberChain.innerHTML = Object.values(APP_CONFIG.chains).map((c) => `<option value="${c.key}">${c.name}</option>`).join(""); }
 function syncMemberKindUi() { const token = el.memberKind.value === "token"; el.memberAddress.disabled = !token; if (!token) el.memberAddress.value = ""; }
-function addGroup() {
+async function refreshBalancesAfterMembershipChange(actionText) {
+  if (!walletList.length) {
+    recompute();
+    return;
+  }
+  setStatus(`${actionText} Refreshing balances...`);
+  await scanAddressesAndMerge(walletAddresses());
+}
+async function addGroup() {
   const key = s(el.newGroupKey.value).toUpperCase();
   if (!/^[A-Z0-9_]{2,20}$/.test(key)) return setStatus("New group key must be 2-20 chars with A-Z, 0-9, _.", true);
   if (APP_CONFIG.groups[key]) return setStatus(`Group ${key} already exists.`, true);
   APP_CONFIG.groups[key] = { key, name: `${key} Basket`, decimals: key === "SOL" ? 9 : 18, members: [] }; APP_CONFIG.targets[key] = "0"; selectedGroupKey = key; el.newGroupKey.value = ""; saveConfig(); renderGroupSelect(); renderGroupEditor(); renderGroupTabs(); recompute();
 }
-function saveGroup() {
+async function saveGroup() {
   const g = APP_CONFIG.groups[selectedGroupKey]; if (!g) return;
+  const prevDecimals = g.decimals;
   g.name = s(el.groupName.value) || `${g.key} Basket`; g.decimals = clampInt(el.groupDecimals.value, 0, 30, g.decimals);
   const t = s(el.groupTarget.value || "0"); try { parseUnits(t, g.decimals); } catch (_e) { setStatus(`Invalid target for ${g.key}.`, true); return false; }
-  APP_CONFIG.targets[g.key] = t; saveConfig(); renderGroupEditor(); recompute(); setStatus(`Saved group ${g.key}.`);
+  APP_CONFIG.targets[g.key] = t; saveConfig(); renderGroupEditor();
+  if (prevDecimals !== g.decimals) await refreshBalancesAfterMembershipChange(`Saved group ${g.key}.`);
+  else { recompute(); setStatus(`Saved group ${g.key}.`); }
   return true;
 }
-function deleteGroup() {
+async function deleteGroup() {
   if (Object.keys(APP_CONFIG.groups).length <= 1) return setStatus("At least one group must remain.", true);
-  delete APP_CONFIG.groups[selectedGroupKey]; delete APP_CONFIG.targets[selectedGroupKey]; selectedGroupKey = Object.keys(APP_CONFIG.groups).sort()[0]; saveConfig(); renderGroupSelect(); renderGroupEditor(); renderGroupTabs(); recompute();
+  const removed = selectedGroupKey;
+  delete APP_CONFIG.groups[selectedGroupKey]; delete APP_CONFIG.targets[selectedGroupKey]; selectedGroupKey = Object.keys(APP_CONFIG.groups).sort()[0]; saveConfig(); renderGroupSelect(); renderGroupEditor(); renderGroupTabs();
+  await refreshBalancesAfterMembershipChange(`Deleted group ${removed}.`);
 }
-function addMember() {
+async function addMember() {
   const g = APP_CONFIG.groups[selectedGroupKey]; if (!g) return;
   const kind = el.memberKind.value === "token" ? "token" : "native"; const chain = s(el.memberChain.value).toLowerCase(); const symbol = s(el.memberSymbol.value); const address = normalizeAddressByChain(chain, el.memberAddress.value); const decimals = clampInt(el.memberDecimals.value, 0, 30, g.decimals);
   if (!APP_CONFIG.chains[chain]) return setStatus("Invalid chain.", true);
@@ -748,9 +816,10 @@ function addMember() {
   if (kind === "token" && APP_CONFIG.chains[chain].type !== "evm" && APP_CONFIG.chains[chain].type !== "solana") return setStatus("Token member is only supported on EVM/Solana chains.", true);
   const candidate = { kind, chain, symbol, address: kind === "token" ? address : "", decimals };
   if ((g.members || []).some((m) => canonicalMemberKey(g.key, m) === canonicalMemberKey(g.key, candidate))) return setStatus("Duplicate member ignored.", true);
-  g.members.push(candidate); el.memberSymbol.value = ""; el.memberAddress.value = ""; saveConfig(); renderGroupEditor(); recompute();
+  g.members.push(candidate); el.memberSymbol.value = ""; el.memberAddress.value = ""; saveConfig(); renderGroupEditor();
+  await refreshBalancesAfterMembershipChange(`Added ${symbol} on ${APP_CONFIG.chains[chain].name}.`);
 }
-function removeMember(e) { const btn = e.target.closest("button[data-index]"); if (!btn) return; const i = Number(btn.getAttribute("data-index")); const g = APP_CONFIG.groups[selectedGroupKey]; if (!g || Number.isNaN(i) || !g.members[i]) return; g.members.splice(i, 1); saveConfig(); renderGroupEditor(); recompute(); }
+async function removeMember(e) { const btn = e.target.closest("button[data-index]"); if (!btn) return; const i = Number(btn.getAttribute("data-index")); const g = APP_CONFIG.groups[selectedGroupKey]; if (!g || Number.isNaN(i) || !g.members[i]) return; const removed = g.members[i]; g.members.splice(i, 1); saveConfig(); renderGroupEditor(); await refreshBalancesAfterMembershipChange(`Removed ${removed.symbol} from ${g.key}.`); }
 
 function flattenMembers() {
   const out = [];
